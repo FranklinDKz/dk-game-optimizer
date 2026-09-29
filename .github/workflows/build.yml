@@ -1,0 +1,23 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Run checks
+        run: dotnet run --project tests/DkGameOptimizer.Tests/DkGameOptimizer.Tests.csproj -c Release
+      - name: Publish single exe
+        run: dotnet publish src/DkGameOptimizer/DkGameOptimizer.csproj -c Release -r win-x64 --self-contained true -o artifacts/win-x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DKGameOptimizer-win-x64
+          path: artifacts/win-x64/DKGameOptimizer.exe
+          if-no-files-found: error
