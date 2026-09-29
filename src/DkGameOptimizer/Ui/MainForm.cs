@@ -39,7 +39,8 @@ public sealed class MainForm : Form
         AddNav(sidebar, "Ações", 305);
         AddNav(sidebar, "Limpeza", 355);
         AddNav(sidebar, "Drivers", 405);
-        var setupButton = Theme.Button("Editar meu setup", 23, 478, 180, 40);
+        if (BundleService.HasBundle) AddNav(sidebar, "Arquivos", 455);
+        var setupButton = Theme.Button("Editar meu setup", 23, BundleService.HasBundle ? 528 : 478, 180, 40);
         setupButton.Click += (_, _) => EditSetup();
         sidebar.Controls.Add(setupButton);
         sidebar.Controls.Add(Theme.Label("Franklin DK RP", 25, 723, 180, 26, 9, Theme.Muted));
@@ -100,6 +101,7 @@ public sealed class MainForm : Form
             case "Ações": ShowActions(); break;
             case "Limpeza": ShowCleanup(); break;
             case "Drivers": ShowDrivers(); break;
+            case "Arquivos" when BundleService.HasBundle: ShowBundle(); break;
             default: ShowOverview(); break;
         }
         BeginInvoke(() =>
@@ -519,6 +521,94 @@ public sealed class MainForm : Form
         note.Controls.Add(Theme.Label("Anote FPS médio, 1% low, temperatura e latência antes e depois de cada mudança. Nem todo ajuste melhora todos os PCs.",
             24, 51, 805, 46, 10, Theme.Muted));
         AddCard(flow, note);
+    }
+
+    private void ShowBundle()
+    {
+        var entries = BundleService.List();
+        var total = entries.Sum(entry => entry.Bytes);
+        var flow = Page("ACERVO PESSOAL", "Arquivos incorporados",
+            $"{entries.Count} arquivos · {CleanupService.FormatBytes(total)} · conteúdo da pasta Optimizer neste executável.");
+        var note = Theme.CardPanel(85);
+        note.Controls.Add(Theme.Label("Consulte antes de usar", 24, 17, 750, 29, 15, Theme.Text, FontStyle.Bold));
+        note.Controls.Add(Theme.Label("O acervo inclui programas de terceiros e scripts que mudam o sistema. Eles não são executados pelo aplicativo. A extração é manual.",
+            24, 47, 810, 34, 9, Theme.Muted));
+        AddCard(flow, note);
+
+        var card = Theme.CardPanel(420);
+        card.Controls.Add(Theme.Label("Buscar pelo nome ou pasta", 24, 17, 750, 26, 12, Theme.Text, FontStyle.Bold));
+        var search = Theme.Input(24, 52, 824);
+        card.Controls.Add(search);
+        var list = new ListBox
+        {
+            Location = new Point(24, 98), Size = new Size(824, 225),
+            BackColor = Theme.Sidebar, ForeColor = Theme.Text,
+            Font = Theme.Font(9), BorderStyle = BorderStyle.FixedSingle,
+            IntegralHeight = false, DisplayMember = nameof(BundleEntry.Name)
+        };
+        list.DataSource = entries.ToList();
+        card.Controls.Add(list);
+        search.TextChanged += (_, _) =>
+        {
+            list.DataSource = entries.Where(entry => entry.Name.Contains(search.Text,
+                StringComparison.CurrentCultureIgnoreCase)).ToList();
+        };
+        var preview = Theme.Button("Ver texto", 24, 339, 133, 38);
+        preview.Click += (_, _) =>
+        {
+            if (list.SelectedItem is not BundleEntry item) return;
+            try { ShowBundleText(item.Name, BundleService.ReadText(item.Name)); }
+            catch (Exception error) { MessageBox.Show(this, error.Message, "Prévia indisponível", MessageBoxButtons.OK, MessageBoxIcon.Information); }
+        };
+        var selected = Theme.Button("Extrair selecionado", 170, 339, 188, 38);
+        selected.Click += async (_, _) =>
+        {
+            if (list.SelectedItem is BundleEntry item) await ExtractBundle(item.Name);
+        };
+        var all = Theme.Button("Extrair todos", 371, 339, 168, 38, true);
+        all.Click += async (_, _) => await ExtractBundle(null);
+        card.Controls.AddRange([preview, selected, all]);
+        card.Controls.Add(Theme.Label("Arquivos extraídos ficam em uma nova pasta Optimizer com data e hora.",
+            24, 389, 800, 25, 9, Theme.Muted));
+        AddCard(flow, card);
+    }
+
+    private void ShowBundleText(string name, string content)
+    {
+        using var window = new Form
+        {
+            Text = name, Size = new Size(930, 710), MinimumSize = new Size(600, 400),
+            StartPosition = FormStartPosition.CenterParent, BackColor = Theme.Background
+        };
+        window.Controls.Add(new TextBox
+        {
+            Text = content, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both,
+            WordWrap = false, Dock = DockStyle.Fill, Font = new Font("Consolas", 9),
+            BackColor = Theme.Sidebar, ForeColor = Theme.Text
+        });
+        window.ShowDialog(this);
+    }
+
+    private async Task ExtractBundle(string? name)
+    {
+        var description = name is null ? "todos os arquivos" : name;
+        if (MessageBox.Show(this, $"Extrair {description}? Os arquivos poderão ser executados fora do aplicativo.",
+            "Confirmar extração", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+        using var folder = new FolderBrowserDialog { Description = "Escolha a pasta de destino" };
+        if (folder.ShowDialog(this) != DialogResult.OK) return;
+        SetStatus("Extraindo arquivos... Aguarde.");
+        try
+        {
+            var result = await Task.Run(() => BundleService.Extract(folder.SelectedPath, name));
+            var message = $"{result.Extracted} arquivo(s) extraído(s) em {result.Directory}.";
+            SetStatus(message);
+            MessageBox.Show(this, message, "Extração concluída", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception error)
+        {
+            SetStatus("A extração não foi concluída: " + error.Message);
+            MessageBox.Show(this, error.Message, "Falha na extração", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
     }
 
     private void EditSetup()

@@ -11,7 +11,7 @@
     <Authors>Franklin DK RP</Authors>
     <Product>DK Game Optimizer</Product>
     <ApplicationIcon>../../assets/dk.ico</ApplicationIcon>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
@@ -21,5 +21,13 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="System.Management" Version="8.0.0" />
+  </ItemGroup>
+  <Target Name="CheckPrivateBundle" BeforeTargets="PrepareForBuild"
+          Condition="'$(IncludePrivateBundle)' == 'true'">
+    <Error Condition="!Exists('$(OptimizerBundlePath)')"
+           Text="Arquivo do pacote pessoal não encontrado: $(OptimizerBundlePath)" />
+  </Target>
+  <ItemGroup Condition="'$(IncludePrivateBundle)' == 'true'">
+    <EmbeddedResource Include="$(OptimizerBundlePath)" LogicalName="OptimizerBundle.zip" />
   </ItemGroup>
 </Project>

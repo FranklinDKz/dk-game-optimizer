@@ -45,6 +45,42 @@ var checks = new (string name, Action run)[]
         var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         Check(CleanupService.RootFor(CleanupArea.NvidiaDxCache).StartsWith(local), "Cache NVIDIA fora do perfil.");
         Check(CleanupService.RootFor(CleanupArea.AmdDxCache).StartsWith(local), "Cache AMD fora do perfil.");
+    }),
+    ("Extração do acervo rejeita travessia de caminho", () =>
+    {
+        var root = Path.Combine(Path.GetTempPath(), "dk-bundle-test");
+        Check(BundleService.IsSafeEntryPath(root, "2 - .Bats/CPU/ajuste.bat"), "Arquivo interno foi rejeitado.");
+        Check(!BundleService.IsSafeEntryPath(root, "../outside.bat"), "Travessia foi aceita.");
+        Check(!BundleService.IsSafeEntryPath(root, "C:/Windows/System32/teste.bat"), "Caminho absoluto foi aceito.");
+    }),
+    ("Acervo incorporado está legível quando presente", () =>
+    {
+        if (!BundleService.HasBundle) return;
+        var entries = BundleService.List();
+        Check(entries.Count > 0, "O pacote incorporado está vazio.");
+        Check(BundleService.Sha256().Length == 64, "O pacote não pôde ser lido integralmente.");
+        var textFile = entries.FirstOrDefault(entry => entry.Name.EndsWith(".bat", StringComparison.OrdinalIgnoreCase));
+        if (textFile is not null) Check(BundleService.ReadText(textFile.Name).Length > 0, "A prévia de texto falhou.");
+        var destination = Path.Combine(Path.GetTempPath(), "dk-bundle-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(destination);
+        try
+        {
+            var result = BundleService.Extract(destination, entries[0].Name);
+            var extracted = Path.Combine(result.Directory, entries[0].Name.Replace('/', Path.DirectorySeparatorChar));
+            Check(result.Extracted == 1 && new FileInfo(extracted).Length == entries[0].Bytes,
+                "A extração de um arquivo falhou.");
+            var complete = BundleService.Extract(destination);
+            Check(complete.Extracted == entries.Count && complete.Bytes == entries.Sum(entry => entry.Bytes),
+                "A extração completa não corresponde ao catálogo.");
+            Check(Directory.EnumerateFiles(complete.Directory, "*", SearchOption.AllDirectories).Count() == entries.Count,
+                "Há arquivos faltando após a extração completa.");
+        }
+        finally
+        {
+            var tempRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.GetTempPath())) + Path.DirectorySeparatorChar;
+            if (Path.GetFullPath(destination).StartsWith(tempRoot, StringComparison.OrdinalIgnoreCase))
+                Directory.Delete(destination, recursive: true);
+        }
     })
 };
 

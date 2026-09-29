@@ -50,6 +50,18 @@ Os perfis são recomendações de configuração; o programa não altera arquivo
 
 O executável é portátil e não exige instalar o .NET. Os dados do setup e os estados para restauração ficam em `%LOCALAPPDATA%\DKGameOptimizer`.
 
+## Edição pessoal com a pasta Optimizer incorporada
+
+Para guardar todos os arquivos de uma pasta Optimizer em um único executável local, execute:
+
+```powershell
+.\tools\BuildPersonal.ps1 -OptimizerFolder 'C:\caminho\para\Optimizer'
+```
+
+O script confere a contagem, o tamanho e o SHA-256 de cada arquivo incorporado. O resultado fica em `artifacts\personal\win-x64\DKGameOptimizer.exe`. A aba **Arquivos** permite pesquisar, visualizar arquivos de texto e extrair um item ou o acervo completo. Nenhum `.bat`, `.reg` ou instalador incorporado é executado pelo aplicativo.
+
+Essa edição é para uso pessoal. A pasta pode conter programas de terceiros cujas licenças não permitem redistribuição, como o Autoruns da Sysinternals; por isso, o pacote incorporado não é enviado ao repositório nem à release pública. A [licença da Sysinternals](https://learn.microsoft.com/en-us/sysinternals/license-terms) proíbe publicar o programa para outras pessoas copiarem.
+
 ## Mudanças e restauração
 
 | Opção | O que muda | Como desfazer |
