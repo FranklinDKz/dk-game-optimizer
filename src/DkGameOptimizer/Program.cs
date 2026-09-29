@@ -6,8 +6,13 @@ namespace DkGameOptimizer;
 internal static class Program
 {
     [STAThread]
-    private static void Main()
+    private static void Main(string[] args)
     {
+        if (args is ["--run-action", var id, var mode, var token])
+        {
+            Environment.ExitCode = ActionWorker.Run(id, mode, token);
+            return;
+        }
         ApplicationConfiguration.Initialize();
         using var setup = new SetupForm(ProfileStore.Load());
         if (setup.ShowDialog() != DialogResult.OK || setup.ResultProfile is null) return;

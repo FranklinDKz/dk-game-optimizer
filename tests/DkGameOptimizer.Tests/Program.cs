@@ -29,6 +29,22 @@ var checks = new (string name, Action run)[]
         Check(CleanupService.FormatBytes(0) == "0 B", "Zero bytes incorreto.");
         Check(CleanupService.FormatBytes(1536) == "1,5 KB" || CleanupService.FormatBytes(1536) == "1.5 KB",
             "Conversão de kilobytes incorreta.");
+    }),
+    ("Ações avançadas possuem IDs e prévias explícitas", () =>
+    {
+        Check(ActionCatalog.All.Count == 11, "O catálogo de ações está incompleto.");
+        Check(ActionCatalog.All.Select(item => item.Id).Distinct().Count() == ActionCatalog.All.Count,
+            "Há IDs de ações repetidos.");
+        Check(ActionCatalog.All.All(item => item.Preview.Length > 0 && item.SourceFile.Length > 0),
+            "Há uma ação sem prévia ou origem.");
+        Check(ActionCatalog.All.Where(item => item.Category is "GPU" or "RAM").All(item => item.CanRestore),
+            "Ajuste de GPU ou RAM sem restauração.");
+    }),
+    ("Caches de GPU ficam em pastas de dados locais", () =>
+    {
+        var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        Check(CleanupService.RootFor(CleanupArea.NvidiaDxCache).StartsWith(local), "Cache NVIDIA fora do perfil.");
+        Check(CleanupService.RootFor(CleanupArea.AmdDxCache).StartsWith(local), "Cache AMD fora do perfil.");
     })
 };
 

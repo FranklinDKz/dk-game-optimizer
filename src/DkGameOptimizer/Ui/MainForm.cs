@@ -12,6 +12,7 @@ public sealed class MainForm : Form
     private readonly Dictionary<string, Button> navigation = [];
     private CleanupScan? lastScan;
     private string activePage = "Visão geral";
+    private bool actionRunning;
 
     public MainForm(HardwareProfile profile)
     {
@@ -35,9 +36,10 @@ public sealed class MainForm : Form
         AddNav(sidebar, "Visão geral", 155);
         AddNav(sidebar, "Jogos", 205);
         AddNav(sidebar, "Windows", 255);
-        AddNav(sidebar, "Limpeza", 305);
-        AddNav(sidebar, "Drivers", 355);
-        var setupButton = Theme.Button("Editar meu setup", 23, 426, 180, 40);
+        AddNav(sidebar, "Ações", 305);
+        AddNav(sidebar, "Limpeza", 355);
+        AddNav(sidebar, "Drivers", 405);
+        var setupButton = Theme.Button("Editar meu setup", 23, 478, 180, 40);
         setupButton.Click += (_, _) => EditSetup();
         sidebar.Controls.Add(setupButton);
         sidebar.Controls.Add(Theme.Label("Franklin DK RP", 25, 723, 180, 26, 9, Theme.Muted));
@@ -64,6 +66,7 @@ public sealed class MainForm : Form
         right.Controls.Add(contentHost, 0, 1);
         root.Controls.Add(right, 1, 0);
         Controls.Add(root);
+        FormClosing += (_, _) => GamePriority.RestoreAll();
         ShowOverview();
         Shown += (_, _) =>
         {
@@ -94,6 +97,7 @@ public sealed class MainForm : Form
         {
             case "Jogos": ShowGames(); break;
             case "Windows": ShowWindows(); break;
+            case "Ações": ShowActions(); break;
             case "Limpeza": ShowCleanup(); break;
             case "Drivers": ShowDrivers(); break;
             default: ShowOverview(); break;
@@ -197,7 +201,7 @@ public sealed class MainForm : Form
 
         var advice = Theme.CardPanel(245);
         AddCard(flow, advice);
-        var executable = Theme.CardPanel(174);
+        var executable = Theme.CardPanel(220);
         AddCard(flow, executable);
 
         void UpdateGame()
@@ -229,6 +233,16 @@ public sealed class MainForm : Form
             var graphics = Theme.Button("Abrir opções de gráficos", 213, 106, 234, 39);
             graphics.Click += (_, _) => OpenWindows("ms-settings:display-advancedgraphics");
             executable.Controls.Add(graphics);
+            var high = Theme.Button("Prioridade Alta na sessão", 24, 158, 234, 39);
+            high.Click += (_, _) =>
+            {
+                try { SetStatus(GamePriority.Apply(profile.GamePaths.GetValueOrDefault(game.Name, ""))); }
+                catch (Exception error) { SetStatus(error.Message); }
+            };
+            executable.Controls.Add(high);
+            var normal = Theme.Button("Restaurar prioridade", 271, 158, 205, 39);
+            normal.Click += (_, _) => SetStatus(GamePriority.Restore(profile.GamePaths.GetValueOrDefault(game.Name, "")));
+            executable.Controls.Add(normal);
         }
 
         combo.SelectedIndexChanged += (_, _) => UpdateGame();
@@ -282,6 +296,90 @@ public sealed class MainForm : Form
         catch { return "Não identificado"; }
     }
 
+    private void ShowActions()
+    {
+        var flow = Page("EXECUÇÃO CONTROLADA", "Ações do otimizador",
+            "Ações baseadas nos arquivos da pasta de referência. Veja o efeito e execute uma por vez.");
+        var intro = Theme.CardPanel(112);
+        intro.Controls.Add(Theme.Label("Antes de executar", 24, 17, 750, 30, 15, Theme.Text, FontStyle.Bold));
+        intro.Controls.Add(Theme.Label("Mudanças no sistema pedem permissão de administrador. O programa salva os valores anteriores das ações reversíveis.",
+            24, 52, 810, 47, 10, Theme.Muted));
+        AddCard(flow, intro);
+
+        foreach (var spec in ActionCatalog.All)
+        {
+            var card = Theme.CardPanel(193);
+            card.Controls.Add(Theme.Label(spec.Category.ToUpperInvariant(), 24, 14, 770, 20, 9, Theme.Accent, FontStyle.Bold));
+            card.Controls.Add(Theme.Label(spec.Title, 24, 37, 790, 29, 14, Theme.Text, FontStyle.Bold));
+            card.Controls.Add(Theme.Label(spec.Description, 24, 68, 805, 37, 9, Theme.Muted));
+            var preview = Theme.Label(spec.Preview, 24, 107, 805, 36, 8.3f, Theme.Warning);
+            preview.Font = new Font("Consolas", 8.3f);
+            card.Controls.Add(preview);
+            var run = Theme.Button("Executar", 24, 151, 122, 32, true);
+            run.Click += async (_, _) => await RunAdvancedAction(spec, false, run);
+            card.Controls.Add(run);
+            if (spec.CanRestore)
+            {
+                var restore = Theme.Button("Restaurar", 156, 151, 130, 32);
+                restore.Click += async (_, _) => await RunAdvancedAction(spec, true, restore);
+                card.Controls.Add(restore);
+            }
+            card.Controls.Add(Theme.Label($"Origem: {spec.SourceFile}" + (spec.RequiresRestart ? " · reinício recomendado" : ""),
+                305, 156, 515, 24, 8, Theme.Muted));
+            AddCard(flow, card);
+        }
+    }
+
+    private async Task RunAdvancedAction(ActionSpec spec, bool restore, Button button)
+    {
+        if (actionRunning)
+        {
+            SetStatus("Aguarde a ação atual terminar.");
+            return;
+        }
+        var verb = restore ? "Restaurar" : "Executar";
+        var question = $"{verb} “{spec.Title}”?\n\n{spec.Description}\n\n{spec.Preview}";
+        if (MessageBox.Show(this, question, "Confirmar ação", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+            return;
+
+        actionRunning = true;
+        button.Enabled = false;
+        SetStatus($"{verb} {spec.Title}: em andamento... Aguarde o término.");
+        try
+        {
+            string message;
+            if (spec.RequiresAdmin && !AdvancedActions.IsAdministrator())
+            {
+                var token = Guid.NewGuid();
+                var mode = restore ? "restore" : "apply";
+                var info = new ProcessStartInfo(Application.ExecutablePath,
+                    $"--run-action {spec.Id} {mode} {token:N}")
+                { UseShellExecute = true, Verb = "runas" };
+                using var process = Process.Start(info)
+                    ?? throw new InvalidOperationException("Não foi possível iniciar a ação com permissão de administrador.");
+                await process.WaitForExitAsync();
+                var outcome = ActionWorker.Read(token);
+                if (outcome is { Success: false }) throw new InvalidOperationException(outcome.Message);
+                if (process.ExitCode != 0)
+                    throw new InvalidOperationException(outcome?.Message ?? "A ação elevada não foi concluída.");
+                message = outcome?.Message ?? "Ação concluída. Consulte o histórico de execução para detalhes.";
+            }
+            else message = await AdvancedActions.ExecuteAsync(spec.Id, restore);
+            SetStatus(message);
+            MessageBox.Show(this, message, "Ação concluída", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception error)
+        {
+            SetStatus("Ação não concluída: " + error.Message);
+            MessageBox.Show(this, error.Message, "Ação não concluída", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+        finally
+        {
+            actionRunning = false;
+            if (!button.IsDisposed) button.Enabled = true;
+        }
+    }
+
     private async Task RunAction(Func<string> action, Action refresh)
     {
         Cursor = Cursors.WaitCursor;
@@ -302,7 +400,7 @@ public sealed class MainForm : Form
     private void ShowCleanup()
     {
         var flow = Page("MANUTENÇÃO", "Limpeza com prévia", "Arquivos pessoais, Downloads e jogos não entram na limpeza. Arquivos em uso são ignorados.");
-        var options = Theme.CardPanel(245);
+        var options = Theme.CardPanel(272);
         options.Controls.Add(Theme.Label("Escolha o que verificar", 24, 18, 700, 30, 15, Theme.Text, FontStyle.Bold));
         var temp = new CheckBox
         {
@@ -316,10 +414,16 @@ public sealed class MainForm : Form
             Location = new Point(24, 91), Size = new Size(650, 26),
             Font = Theme.Font(10), ForeColor = Theme.Text
         };
-        options.Controls.AddRange([temp, shader]);
+        var gpuCache = new CheckBox
+        {
+            Text = "Cache de shaders NVIDIA / AMD com mais de 30 dias", Checked = false,
+            Location = new Point(24, 121), Size = new Size(650, 26),
+            Font = Theme.Font(10), ForeColor = Theme.Text
+        };
+        options.Controls.AddRange([temp, shader, gpuCache]);
         options.Controls.Add(Theme.Label("O cache de shaders será recompilado quando necessário; o primeiro uso pode apresentar travamentos temporários.",
-            24, 123, 800, 39, 9, Theme.Warning));
-        var scanButton = Theme.Button("Analisar arquivos", 24, 181, 177, 39, true);
+            24, 153, 800, 39, 9, Theme.Warning));
+        var scanButton = Theme.Button("Analisar arquivos", 24, 208, 177, 39, true);
         options.Controls.Add(scanButton);
         AddCard(flow, options);
 
@@ -335,7 +439,7 @@ public sealed class MainForm : Form
 
         scanButton.Click += async (_, _) =>
         {
-            if (!temp.Checked && !shader.Checked)
+            if (!temp.Checked && !shader.Checked && !gpuCache.Checked)
             {
                 SetStatus("Selecione pelo menos uma categoria para analisar.");
                 return;
@@ -345,7 +449,7 @@ public sealed class MainForm : Form
             summary.Text = "Analisando arquivos...";
             try
             {
-                lastScan = await Task.Run(() => CleanupService.Scan(temp.Checked, shader.Checked));
+                lastScan = await Task.Run(() => CleanupService.Scan(temp.Checked, shader.Checked, gpuCache.Checked));
                 summary.Text = $"{lastScan.Items.Count:N0} arquivo(s) · {CleanupService.FormatBytes(lastScan.TotalBytes)} recuperáveis" +
                     (lastScan.Truncated ? " · análise limitada a 100 mil arquivos" : "");
                 delete.Enabled = lastScan.Items.Count > 0;

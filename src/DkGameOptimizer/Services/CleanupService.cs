@@ -1,6 +1,6 @@
 namespace DkGameOptimizer.Services;
 
-public enum CleanupArea { UserTemp, ShaderCache }
+public enum CleanupArea { UserTemp, ShaderCache, NvidiaDxCache, NvidiaGlCache, AmdDxCache, AmdVkCache }
 
 public sealed record CleanupItem(string Path, long Bytes, CleanupArea Area, DateTime CutoffUtc);
 public sealed record CleanupScan(IReadOnlyList<CleanupItem> Items, bool Truncated)
@@ -19,6 +19,14 @@ public static class CleanupService
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Temp"),
         CleanupArea.ShaderCache => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "D3DSCache"),
+        CleanupArea.NvidiaDxCache => Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NVIDIA", "DXCache"),
+        CleanupArea.NvidiaGlCache => Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NVIDIA", "GLCache"),
+        CleanupArea.AmdDxCache => Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AMD", "DxCache"),
+        CleanupArea.AmdVkCache => Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AMD", "VkCache"),
         _ => throw new ArgumentOutOfRangeException(nameof(area))
     };
 
@@ -29,12 +37,19 @@ public static class CleanupService
         return fullPath.StartsWith(fullRoot, StringComparison.OrdinalIgnoreCase);
     }
 
-    public static CleanupScan Scan(bool includeTemp, bool includeShaders)
+    public static CleanupScan Scan(bool includeTemp, bool includeShaders, bool includeGpuCache = false)
     {
         var items = new List<CleanupItem>();
         var truncated = false;
         if (includeTemp) Collect(CleanupArea.UserTemp, TimeSpan.FromDays(7));
         if (includeShaders) Collect(CleanupArea.ShaderCache, TimeSpan.FromDays(30));
+        if (includeGpuCache)
+        {
+            Collect(CleanupArea.NvidiaDxCache, TimeSpan.FromDays(30));
+            Collect(CleanupArea.NvidiaGlCache, TimeSpan.FromDays(30));
+            Collect(CleanupArea.AmdDxCache, TimeSpan.FromDays(30));
+            Collect(CleanupArea.AmdVkCache, TimeSpan.FromDays(30));
+        }
         return new CleanupScan(items, truncated);
 
         void Collect(CleanupArea area, TimeSpan age)
